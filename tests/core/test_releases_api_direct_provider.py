@@ -173,6 +173,43 @@ def test_releases_direct_provider_returns_404_when_book_missing(main_module, cli
     mock_get_source.assert_called_once_with("direct_download")
 
 
+def test_releases_source_without_records_searches_by_title(main_module, client):
+    searched_books = []
+
+    class _RecordlessSource:
+        last_search_type = "title"
+
+        def get_record(self, record_id, *, fetch_download_count=True):
+            return None
+
+        def search(self, book, plan, expand_search=False, content_type="ebook"):
+            searched_books.append(book)
+            return []
+
+        def get_column_config(self):
+            return ReleaseColumnConfig(columns=[], grid_template="")
+
+    with (
+        patch.object(main_module, "get_auth_mode", return_value="none"),
+        patch("shelfmark.release_sources.get_source", return_value=_RecordlessSource()),
+    ):
+        resp = client.get(
+            "/api/releases",
+            query_string={
+                "provider": "audiobookbay",
+                "book_id": "release-hash",
+                "content_type": "audiobook",
+                "title": "Dune",
+                "author": "Frank Herbert, Brian Herbert",
+            },
+        )
+
+    assert resp.status_code == 200
+    [book] = searched_books
+    assert book.title == "Dune"
+    assert book.search_author == "Frank Herbert"
+
+
 def test_releases_accepts_direct_source_query_mode(main_module, client):
     class _QueryDirectSource:
         last_search_type = "manual"
@@ -235,6 +272,64 @@ def test_releases_accepts_direct_source_query_mode(main_module, client):
     assert body["releases"][0]["source"] == "direct_download"
     assert body["releases"][0]["source_id"] == "md5-rel-query"
     mock_get_source.assert_called_once_with("direct_download")
+
+
+def test_releases_accepts_audiobookbay_source_query_mode(main_module, client):
+    class _QueryAudiobookSource:
+        last_search_type = "manual"
+
+        def search(self, book, plan, expand_search=False, content_type="ebook"):
+            assert book.provider == "manual"
+            assert book.title == "The Hobbit"
+            assert plan.source_filters is not None
+            assert plan.manual_query == "The Hobbit"
+            assert content_type == "audiobook"
+            return [
+                Release(
+                    source="audiobookbay",
+                    source_id="abb-rel-query",
+                    title="The Hobbit",
+                    format="m4b",
+                    size="500 MB",
+                    content_type="audiobook",
+                )
+            ]
+
+        def get_column_config(self):
+            return ReleaseColumnConfig(
+                columns=[
+                    ColumnSchema(
+                        key="format",
+                        label="Format",
+                        render_type=ColumnRenderType.BADGE,
+                        align=ColumnAlign.CENTER,
+                        width="80px",
+                    ),
+                ],
+                grid_template="minmax(0,2fr) 80px",
+            )
+
+    with patch.object(main_module, "get_auth_mode", return_value="none"):
+        with patch(
+            "shelfmark.release_sources.get_source", return_value=_QueryAudiobookSource()
+        ) as mock_get_source:
+            resp = client.get(
+                "/api/releases",
+                query_string={
+                    "source": "audiobookbay",
+                    "content_type": "audiobook",
+                    "query": "The Hobbit",
+                },
+            )
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["sources_searched"] == ["audiobookbay"]
+    assert body["book"]["provider"] == "manual"
+    assert body["book"]["title"] == "The Hobbit"
+    assert body["releases"][0]["source"] == "audiobookbay"
+    assert body["releases"][0]["content_type"] == "audiobook"
+    mock_get_source.assert_called_once_with("audiobookbay")
 
 
 def test_release_source_record_endpoint_returns_generic_browse_record(main_module, client):

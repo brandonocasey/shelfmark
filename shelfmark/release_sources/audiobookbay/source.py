@@ -13,6 +13,7 @@ from shelfmark.core.languages import normalize_language
 from shelfmark.core.logger import setup_logger
 from shelfmark.core.text_match import strip_part_suffix, title_tokens_match, tokens
 from shelfmark.release_sources import (
+    BrowseRecord,
     ColumnAlign,
     ColumnColorHint,
     ColumnRenderType,
@@ -21,6 +22,7 @@ from shelfmark.release_sources import (
     ReleaseColumnConfig,
     ReleaseProtocol,
     ReleaseSource,
+    SourceUnavailableError,
     register_source,
 )
 from shelfmark.release_sources.audiobookbay import scraper
@@ -144,6 +146,19 @@ class AudiobookBaySource(ReleaseSource):
     display_name = "AudiobookBay"
     supported_content_types: ClassVar[list[str]] = ["audiobook"]  # ONLY audiobooks
 
+    def search_results_are_releases(self) -> bool:
+        """Declare direct AudiobookBay results as concrete releases."""
+        return True
+
+    def get_record(
+        self,
+        record_id: str,
+        *,
+        fetch_download_count: bool = True,
+    ) -> BrowseRecord | None:
+        """Return no browse record because search results are already releases."""
+        return None
+
     def search(
         self,
         book: BookMetadata,
@@ -168,10 +183,13 @@ class AudiobookBaySource(ReleaseSource):
         if content_type != "audiobook":
             return []
 
+        if not self.is_available():
+            msg = (
+                f"{self.display_name} is unavailable. Enable and configure the source in Settings."
+            )
+            raise SourceUnavailableError(msg)
+
         hostname = _coerce_hostname_config(config.get("ABB_HOSTNAME", ""))
-        if not hostname:
-            logger.debug("AudiobookBay hostname is not configured")
-            return []
         max_pages = _coerce_positive_int(config.get("ABB_PAGE_LIMIT", 1), 1)
         exact_phrase = bool(config.get("ABB_EXACT_PHRASE", False))
 
