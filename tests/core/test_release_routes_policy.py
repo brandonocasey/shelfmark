@@ -275,7 +275,7 @@ def _get_record(
     policy: dict,
     *,
     capabilities: dict[str, set[str]],
-    source: str = "audiobookbay",
+    source: str = "prowlarr",
 ):
     searched: list[str] = []
     auth_patch, policy_patch = _with_policy(main_module, policy)
@@ -300,7 +300,7 @@ class TestReleaseSourceRecordPolicy:
             client,
             main_module,
             _policy(default_audiobook="blocked"),
-            capabilities={"audiobookbay": {"audiobook"}},
+            capabilities={"prowlarr": {"audiobook"}},
         )
 
         assert resp.status_code == 403
@@ -314,7 +314,7 @@ class TestReleaseSourceRecordPolicy:
             client,
             main_module,
             _policy(default_audiobook="request_book"),
-            capabilities={"audiobookbay": {"audiobook"}},
+            capabilities={"prowlarr": {"audiobook"}},
         )
 
         assert resp.status_code == 403
@@ -322,17 +322,23 @@ class TestReleaseSourceRecordPolicy:
         assert resp.json["required_mode"] == "request_book"
         assert searched == []
 
-    def test_request_book_becomes_request_release_for_a_release_source(self, client, main_module):
-        """direct_download's browse rows are concrete releases, so request_book turns into
+    @pytest.mark.parametrize(
+        ("source", "content_type"),
+        [("direct_download", "ebook"), ("audiobookbay", "audiobook")],
+    )
+    def test_request_book_becomes_request_release_for_a_release_source(
+        self, client, main_module, source, content_type
+    ):
+        """Browse rows of these sources are concrete releases, so request_book turns into
         request_release there (the policy's own rule) and the record stays reachable."""
         _login(client, main_module)
 
         resp, searched = _get_record(
             client,
             main_module,
-            _policy(default_ebook="request_book"),
-            capabilities={"direct_download": {"ebook"}},
-            source="direct_download",
+            _policy(default_ebook="request_book", default_audiobook="request_book"),
+            capabilities={source: {content_type}},
+            source=source,
         )
 
         assert resp.status_code == 200
@@ -344,10 +350,10 @@ class TestReleaseSourceRecordPolicy:
         policy = _policy(default_ebook="download", default_audiobook="blocked")
 
         allowed, _ = _get_record(
-            client, main_module, policy, capabilities={"audiobookbay": {"ebook", "audiobook"}}
+            client, main_module, policy, capabilities={"prowlarr": {"ebook", "audiobook"}}
         )
         refused, searched = _get_record(
-            client, main_module, policy, capabilities={"audiobookbay": {"audiobook"}}
+            client, main_module, policy, capabilities={"prowlarr": {"audiobook"}}
         )
 
         assert allowed.status_code == 200

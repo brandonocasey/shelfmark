@@ -8,6 +8,7 @@ import pytest
 
 from shelfmark.core.search_plan import ReleaseSearchPlan, ReleaseSearchVariant
 from shelfmark.metadata_providers import BookMetadata
+from shelfmark.release_sources import SourceUnavailableError
 from shelfmark.release_sources.audiobookbay.source import (
     AudiobookBaySource,
     _generate_source_id,
@@ -97,17 +98,27 @@ class TestAudiobookBaySource:
 
     @pytest.fixture(autouse=True)
     def configure_hostname(self, monkeypatch):
-        """Provide a default ABB hostname for source.search tests."""
+        """Enable ABB with a default hostname for source.search tests."""
         import shelfmark.release_sources.audiobookbay.source as source_module
 
         original_get = source_module.config.get
 
         def mock_get(key, default=None):
+            if key == "ABB_ENABLED":
+                return True
             if key == "ABB_HOSTNAME":
                 return "audiobookbay.lu"
             return original_get(key, default)
 
         monkeypatch.setattr(source_module.config, "get", mock_get)
+
+    def test_search_results_are_releases(self):
+        """Test that direct AudiobookBay results can use the releases endpoint."""
+        assert AudiobookBaySource().search_results_are_releases() is True
+
+    def test_get_record_returns_none_for_release_id(self):
+        """Test that release IDs do not raise during generic record lookup."""
+        assert AudiobookBaySource().get_record("release-hash") is None
 
     def test_is_available_enabled(self, monkeypatch):
         """Test is_available when enabled."""
@@ -140,6 +151,30 @@ class TestAudiobookBaySource:
 
         source = AudiobookBaySource()
         assert source.is_available() is False
+
+    @pytest.mark.parametrize(
+        ("enabled", "hostname"),
+        [(False, "audiobookbay.lu"), (True, "")],
+    )
+    def test_search_raises_when_unavailable(self, monkeypatch, enabled, hostname):
+        """Test that searching a disabled or unconfigured source reports it as unavailable."""
+        import shelfmark.release_sources.audiobookbay.source as source_module
+
+        settings = {"ABB_ENABLED": enabled, "ABB_HOSTNAME": hostname}
+        monkeypatch.setattr(
+            source_module.config, "get", lambda key, default=None: settings.get(key, default)
+        )
+        plan = ReleaseSearchPlan(
+            languages=["en"],
+            isbn_candidates=[],
+            author="Test Author",
+            title_variants=[ReleaseSearchVariant(title="Test Book", author="Test Author")],
+            grouped_title_variants=[],
+        )
+        book = BookMetadata(provider="test", provider_id="123", title="Test Book")
+
+        with pytest.raises(SourceUnavailableError, match="AudiobookBay is unavailable"):
+            AudiobookBaySource().search(book, plan, content_type="audiobook")
 
     def test_search_non_audiobook_content_type(self):
         """Test that non-audiobook content types return empty."""
@@ -475,6 +510,8 @@ class TestAudiobookBaySource:
         mock_search.return_value = []
 
         def mock_get(key, default=None):
+            if key == "ABB_ENABLED":
+                return True
             if key == "ABB_HOSTNAME":
                 return "audiobookbay.is"
             if key == "ABB_PAGE_LIMIT":
@@ -523,6 +560,8 @@ class TestAudiobookBaySource:
         ]
 
         def mock_get(key, default=None):
+            if key == "ABB_ENABLED":
+                return True
             if key == "ABB_HOSTNAME":
                 return "audiobookbay.lu"
             if key == "ABB_EXACT_PHRASE":
@@ -573,6 +612,8 @@ class TestAudiobookBaySource:
         ]
 
         def mock_get(key, default=None):
+            if key == "ABB_ENABLED":
+                return True
             if key == "ABB_HOSTNAME":
                 return "audiobookbay.lu"
             if key == "ABB_EXACT_PHRASE":

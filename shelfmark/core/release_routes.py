@@ -335,6 +335,27 @@ def _build_source_query_book(query_text: str, filters: SearchFilters) -> BookMet
     )
 
 
+def _build_manual_book(book_id: str, title: str, author_text: str) -> BookMetadata:
+    """Build a book context from the title and comma-joined authors the release modal sends."""
+    from shelfmark.metadata_providers import BookMetadata
+
+    # The release modal sends `authors.join(', ')` as `author`, so the commas here
+    # are joins between contributors, not part of one name. This split is the only
+    # place that knows that, so `search_author` comes from it rather than from the
+    # joined text - see issue #1252.
+    authors = [a.strip() for a in author_text.split(",") if a.strip()]
+
+    return BookMetadata(
+        provider="manual",
+        provider_id=book_id,
+        provider_display_name="Manual Search",
+        title=title,
+        search_title=title,
+        search_author=authors[0] if authors else None,
+        authors=authors,
+    )
+
+
 def _serialize_browse_record(record: BrowseRecord) -> dict:
     """Serialize a source-native browse record for the frontend."""
     result = {key: value for key, value in record.__dict__.items() if value is not None}
@@ -487,7 +508,6 @@ def register_release_routes(
 
             from shelfmark.core.release_search import search_source_releases
             from shelfmark.metadata_providers import (
-                BookMetadata,
                 get_provider,
                 get_provider_kwargs,
                 is_provider_registered,
@@ -605,31 +625,20 @@ def register_release_routes(
                         return _release_listing_block_response(refused_record_mode)
                 source = get_source(provider)
                 direct_record = source.get_record(book_id)
-                if direct_record is None:
+                if direct_record is not None:
+                    book = browse_record_to_book_metadata(
+                        direct_record,
+                        title_override=title_param or None,
+                        author_override=author_param or None,
+                    )
+                elif title_param:
+                    # Sources such as AudiobookBay keep no records behind their release IDs.
+                    book = _build_manual_book(book_id, title_param, author_param)
+                else:
                     return jsonify({"error": "Book not found in release source"}), 404
-
-                book = browse_record_to_book_metadata(
-                    direct_record,
-                    title_override=title_param or None,
-                    author_override=author_param or None,
-                )
             elif provider == "manual":
-                resolved_title = title_param or manual_query or "Manual Search"
-                resolved_author = author_param or ""
-                # The release modal sends `authors.join(', ')` as `author`, so the commas here
-                # are joins between contributors, not part of one name. This split is the only
-                # place that knows that, so `search_author` comes from it rather than from the
-                # joined text - see issue #1252.
-                authors = [a.strip() for a in resolved_author.split(",") if a.strip()]
-
-                book = BookMetadata(
-                    provider="manual",
-                    provider_id=book_id,
-                    provider_display_name="Manual Search",
-                    title=resolved_title,
-                    search_title=resolved_title,
-                    search_author=authors[0] if authors else None,
-                    authors=authors,
+                book = _build_manual_book(
+                    book_id, title_param or manual_query or "Manual Search", author_param
                 )
             else:
                 if not is_provider_registered(provider):
