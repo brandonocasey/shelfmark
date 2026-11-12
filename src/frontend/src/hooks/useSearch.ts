@@ -282,7 +282,7 @@ export function useSearch(options: UseSearchOptions): UseSearchReturn {
       setLastSearchQuery(query);
 
       try {
-        const { books: results, totalResults } = await searchBooks(query);
+        const { books: results, totalResults } = await searchBooks(query, effectiveContentType);
 
         if (results.length > 0) {
           // When no explicit server-side sort is selected (empty or "downloads"),

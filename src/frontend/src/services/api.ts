@@ -14,6 +14,7 @@ import type {
   MetadataSearchConfig,
   PackBook,
   InspectReleaseResponse,
+  ContentType,
 } from '../types';
 import type {
   ActionResult,
@@ -279,12 +280,21 @@ async function fetchJSON<T>(
 }
 
 // API functions
+export const buildDirectSearchUrl = (query: string, contentType: ContentType = 'ebook'): string => {
+  const params = new URLSearchParams(query);
+  // AudiobookBay is the only audiobook source whose search results are releases.
+  params.set('source', contentType === 'audiobook' ? 'audiobookbay' : 'direct_download');
+  params.set('content_type', contentType);
+  return `${API_BASE}/releases?${params.toString()}`;
+};
+
 export const searchBooks = async (
   query: string,
+  contentType: ContentType = 'ebook',
 ): Promise<{ books: Book[]; totalResults: number | string | null }> => {
   if (!query) return { books: [], totalResults: null };
   const response = await fetchJSON<ReleasesResponse>(
-    `${API_BASE}/releases?source=direct_download&${query}`,
+    buildDirectSearchUrl(query, contentType),
     {},
     searchTimeoutMs,
   );
@@ -548,6 +558,7 @@ export type DownloadReleasePayload = {
   size_bytes?: number;
   downloads?: number;
   download_url?: string;
+  source_url?: string;
   protocol?: string;
   indexer?: string;
   seeders?: number;

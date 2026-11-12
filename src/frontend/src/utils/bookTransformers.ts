@@ -58,6 +58,7 @@ interface SourceBackedBookData {
   id: string;
   title: string;
   source: string;
+  content_type?: string;
   author?: unknown;
   year?: unknown;
   language?: unknown;
@@ -166,6 +167,7 @@ const transformSourceBackedDataToBook = (data: SourceBackedBookData): Book => {
     info: data.info,
     description: toOptionalText(data.description),
     source: data.source,
+    content_type: data.content_type,
     source_display_name: displayName,
     provider: data.source,
     provider_display_name: displayName,
@@ -180,6 +182,7 @@ export function transformReleaseToDirectBook(release: Release): Book {
     id: release.source_id,
     title: release.title,
     source: release.source,
+    content_type: release.content_type,
     author: extra.author,
     year: extra.year,
     language: release.language || extra.language,
