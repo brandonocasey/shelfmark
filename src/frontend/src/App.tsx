@@ -103,6 +103,7 @@ import {
   buildMetadataBookRequestData,
   buildReleaseDataFromMetadataRelease,
   getBrowseSource,
+  getBookContentType,
   getRequestSuccessMessage,
   toContentType,
 } from './utils/requestPayload';
@@ -1094,7 +1095,7 @@ function App() {
 
   const getDirectPolicyMode = useCallback(
     (book: Book): RequestPolicyMode => {
-      return getSourceMode(getBrowseSource(book), 'ebook');
+      return getSourceMode(getBrowseSource(book), getBookContentType(book));
     },
     [getSourceMode],
   );
@@ -1160,7 +1161,7 @@ function App() {
   const executeBookDownload = useCallback(
     async (book: Book, onBehalfOfUserId?: number): Promise<void> => {
       const source = getBrowseSource(book);
-      const directContentType: ContentType = 'ebook';
+      const directContentType = getBookContentType(book);
       const payload = buildReleaseDataFromDirectBook(book);
       const requestStartedAtSeconds = Date.now() / 1000;
       try {
@@ -1439,7 +1440,7 @@ function App() {
   // Direct-mode action (download or release-level request based on policy).
   const handleDownload = async (book: Book): Promise<void> => {
     const source = getBrowseSource(book);
-    const directContentType: ContentType = 'ebook';
+    const directContentType = getBookContentType(book);
     let mode = getDirectPolicyMode(book);
     policyTrace('direct.action:start', {
       bookId: book.id,
