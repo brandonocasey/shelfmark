@@ -4,6 +4,10 @@ export const toContentType = (value: string): ContentType => {
   return value.trim().toLowerCase() === 'audiobook' ? 'audiobook' : 'ebook';
 };
 
+export const getBookContentType = (book: Book): ContentType => {
+  return toContentType(book.content_type || 'ebook');
+};
+
 export const getBrowseSource = (book: Book): string => {
   const source = book.source || book.provider;
   if (source) {
@@ -48,7 +52,7 @@ const buildDirectBookRequestData = (book: Book) => {
   return {
     title: book.title || 'Unknown title',
     author: book.author || 'Unknown author',
-    content_type: 'ebook' as const,
+    content_type: getBookContentType(book),
     provider: source,
     provider_id: book.provider_id || book.id,
     year: book.year,
@@ -119,7 +123,8 @@ export const buildReleaseDataFromDirectBook = (book: Book) => {
     size: book.size,
     downloads,
     preview: book.preview,
-    content_type: 'ebook' as const,
+    source_url: book.source_url,
+    content_type: getBookContentType(book),
     // Browsing a source directly means the book record IS the release record.
     language: book.language,
     search_mode: 'direct' as const,
@@ -129,6 +134,7 @@ export const buildReleaseDataFromDirectBook = (book: Book) => {
 export const buildDirectRequestPayload = (book: Book): CreateRequestPayload => {
   const bookData = buildDirectBookRequestData(book);
   const source = getBrowseSource(book);
+  const contentType = getBookContentType(book);
 
   // In direct mode, every result already represents a concrete downloadable release.
   // Keep request payloads release-level so admins can approve immediately while still
@@ -138,7 +144,7 @@ export const buildDirectRequestPayload = (book: Book): CreateRequestPayload => {
     release_data: buildReleaseDataFromDirectBook(book),
     context: {
       source,
-      content_type: 'ebook',
+      content_type: contentType,
       request_level: 'release',
     },
   };

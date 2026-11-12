@@ -13,6 +13,7 @@ describe('bookTransformers.transformReleaseToDirectBook', () => {
       source: 'direct_download',
       source_id: 'md5-123',
       title: 'Example Title',
+      content_type: 'audiobook',
       format: 'epub',
       language: 'en',
       size: '2 MB',
@@ -33,6 +34,7 @@ describe('bookTransformers.transformReleaseToDirectBook', () => {
 
     expect(book.id).toBe('md5-123');
     expect(book.title).toBe('Example Title');
+    expect(book.content_type).toBe('audiobook');
     expect(book.author).toBe('Example Author');
     expect(book.year).toBe('2001');
     expect(book.language).toBe('en');

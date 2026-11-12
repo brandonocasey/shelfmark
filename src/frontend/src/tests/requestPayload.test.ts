@@ -50,6 +50,14 @@ describe('requestPayload utilities', () => {
     expect(isSourceBackedRequestPayload(payload)).toBe(true);
   });
 
+  it('keeps audiobook content type in direct request payloads', () => {
+    const payload = buildDirectRequestPayload({ ...baseBook, content_type: 'audiobook' });
+
+    expect(payload.book_data.content_type).toBe('audiobook');
+    expect(payload.release_data?.content_type).toBe('audiobook');
+    expect(payload.context.content_type).toBe('audiobook');
+  });
+
   it('builds metadata book + release payload fragments', () => {
     const bookData = buildMetadataBookRequestData(baseBook, 'ebook');
     const releaseData = buildReleaseDataFromMetadataRelease(baseBook, baseRelease, 'ebook');
@@ -162,5 +170,16 @@ describe('requestPayload utilities', () => {
     const data = buildReleaseDataFromDirectBook({ ...baseBook, language: 'de' });
 
     expect(data.language).toBe('de');
+  });
+
+  it('preserves the source URL for direct downloads', () => {
+    const data = buildReleaseDataFromDirectBook({
+      ...baseBook,
+      source: 'audiobookbay',
+      source_url: 'https://audiobookbay.lu/abss/example-book/',
+      content_type: 'audiobook',
+    });
+
+    expect(data.source_url).toBe('https://audiobookbay.lu/abss/example-book/');
   });
 });
