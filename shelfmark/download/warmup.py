@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from shelfmark.core.config import config
 from shelfmark.core.logger import setup_logger
@@ -40,10 +41,20 @@ _warmup_lock = threading.Lock()
 # seconds old, for a throwaway "The Great Gatsby" query nobody asked for.
 _user_search_seen = threading.Event()
 
+# Warm-up from a page open: when the bypass helper last had work (a warm-up or a real
+# search), and the thread of a warm-up already running for a page open.
+_connect_thread: threading.Thread | None = None
+_last_bypass_use: float | None = None
+
+# Mirrors the bypass helper's idle timeout setting, whose default this is.
+_DEFAULT_IDLE_SECONDS = 180.0
+
 
 def note_user_search() -> None:
     """Record that a real search has run, so a pending warm-up stands down."""
+    global _last_bypass_use
     _user_search_seen.set()
+    _last_bypass_use = time.monotonic()
 
 
 def _as_bool(value: object, *, default: bool) -> bool:
@@ -108,6 +119,13 @@ def run_warmup() -> bool:
         logger.debug("Search warm-up skipped: no Anna's Archive mirrors configured")
         return False
 
+    return _search_once()
+
+
+def _search_once() -> bool:
+    """Run the throwaway search. Returns True if it produced results."""
+    global _last_bypass_use
+
     query = warmup_query()
     logger.info("Warming up direct download search (%r)", query)
     try:
@@ -121,12 +139,62 @@ def run_warmup() -> bool:
         logger.warning("Search warm-up did not complete; first user search may be slow")
         logger.debug("Search warm-up failure detail", exc_info=True)
         return False
+    finally:
+        _last_bypass_use = time.monotonic()
 
     if results:
         logger.info("Search warm-up complete: %s results, source is ready", len(results))
         return True
     logger.info("Search warm-up returned no results; source reachable but empty")
     return False
+
+
+def _idle_window_seconds() -> float:
+    """How long the bypass helper stays warm after its last use."""
+    raw = config.get("BYPASS_BROWSER_IDLE_TIMEOUT", _DEFAULT_IDLE_SECONDS)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return _DEFAULT_IDLE_SECONDS
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return _DEFAULT_IDLE_SECONDS
+
+
+def warm_on_connect() -> bool:
+    """Start a warm-up because a client opened the page. Returns True if one started.
+
+    The boot warm-up only helps the first visit after a restart. Once the bypass helper
+    has idled out, the next search pays the cold path again, so a page open is the cue
+    to pay it ahead of the search box. It runs on a daemon thread and never raises.
+
+    A warm-up is skipped while another is pending or running, and while the helper is
+    still inside its idle window - the last warm-up or search kept it alive, so a reload
+    or a second tab must not start another solve.
+    """
+    global _connect_thread, _last_bypass_use
+
+    if not is_enabled():
+        return False
+
+    with _warmup_lock:
+        for thread in (_warmup_thread, _connect_thread):
+            if thread is not None and thread.is_alive():
+                logger.debug("Search warm-up already pending or running")
+                return False
+
+        last_use = _last_bypass_use
+        if last_use is not None and time.monotonic() - last_use < _idle_window_seconds():
+            logger.debug("Search warm-up skipped: bypass helper still warm")
+            return False
+
+        # Claim the window before the thread runs, so a burst of connects starts one.
+        _last_bypass_use = time.monotonic()
+        _connect_thread = threading.Thread(
+            target=_search_once, name="SearchWarmupOnConnect", daemon=True
+        )
+        _connect_thread.start()
+
+    return True
 
 
 def start(delay_seconds: float = _DEFAULT_DELAY_SECONDS) -> bool:

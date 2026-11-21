@@ -17,5 +17,9 @@ def _clear_warmup_user_search_flag():
     from shelfmark.download import warmup
 
     warmup._user_search_seen.clear()
+    warmup._last_bypass_use = None
+    warmup._connect_thread = None
     yield
     warmup._user_search_seen.clear()
+    warmup._last_bypass_use = None
+    warmup._connect_thread = None
