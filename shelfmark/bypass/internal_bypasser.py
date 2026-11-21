@@ -42,6 +42,7 @@ from shelfmark.bypass.cookie_store import (
     store_extracted_cookies,
 )
 from shelfmark.bypass.fingerprint import get_screen_size
+from shelfmark.bypass.idle_timeout import helper_idle_timeout
 from shelfmark.bypass.waiting_room import WaitingRoomTimeoutError, is_aa_waiting_room
 from shelfmark.config import env
 from shelfmark.config.env import LOG_DIR
@@ -87,7 +88,6 @@ _HELPER_RESULT_POLL_SECONDS = 0.05
 # Closing the helper's stdin asks it to shut down; this is how long it may take to finish
 # what it is doing and exit before its session is killed instead.
 _HELPER_SHUTDOWN_GRACE_SECONDS = 15.0
-_HELPER_IDLE_TIMEOUT_DEFAULT = 180.0
 # How long to wait for a solved page to produce its document before the attempt is
 # abandoned. SeleniumBase's own get_page_source() allows one second; see _read_page_source.
 _PAGE_SOURCE_TIMEOUT_DEFAULT = 20.0
@@ -1111,10 +1111,7 @@ class _BypassHelper:
         self._idle_timer: threading.Timer | None = None
 
     def _idle_timeout(self) -> float:
-        return _coerce_non_negative_float(
-            app_config.get("BYPASS_BROWSER_IDLE_TIMEOUT", _HELPER_IDLE_TIMEOUT_DEFAULT),
-            _HELPER_IDLE_TIMEOUT_DEFAULT,
-        )
+        return helper_idle_timeout()
 
     def _spawn(self) -> subprocess.Popen[str]:
         env_vars = os.environ.copy()

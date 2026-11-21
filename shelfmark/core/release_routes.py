@@ -681,9 +681,7 @@ def register_release_routes(
 
             # A real search is under way, so a warm-up still sitting on its start-up delay
             # should stand down rather than queue its throwaway solve in front of this one.
-            warmup.note_user_search()
-
-            with search_deadline.search_deadline():
+            with warmup.user_search(), search_deadline.search_deadline():
                 for index, source_name in enumerate(sources_to_search):
                     if search_deadline.expired():
                         logger.warning("Release search budget spent; %s not searched", source_name)

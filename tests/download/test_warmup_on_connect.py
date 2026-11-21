@@ -39,12 +39,21 @@ def test_page_open_starts_a_warmup(monkeypatch):
     assert calls == [warmup.warmup_query()]
 
 
-def test_page_open_warms_even_after_a_real_search_idled_out(monkeypatch):
+def test_page_open_warms_once_the_idle_timeout_has_passed(monkeypatch):
     calls: list[str] = []
     _patch_search(monkeypatch, calls)
+    now = [1000.0]
+    monkeypatch.setattr(warmup.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        "shelfmark.bypass.idle_timeout.config.get",
+        lambda key, default=None: 60 if key == "BYPASS_BROWSER_IDLE_TIMEOUT" else default,
+    )
     warmup.note_user_search()
-    monkeypatch.setattr(warmup, "_idle_window_seconds", lambda: 0.0)
 
+    now[0] += 59
+    assert warmup.warm_on_connect() is False
+
+    now[0] += 2
     assert warmup.warm_on_connect() is True
     _join_connect_thread()
 
@@ -97,5 +106,43 @@ def test_page_open_respects_the_warmup_switch(monkeypatch):
     _patch_search(monkeypatch, calls)
     monkeypatch.setattr(warmup, "_setting", lambda _key, _default: False)
 
+    assert warmup.warm_on_connect() is False
+    assert calls == []
+
+
+def test_page_open_without_a_mirror_starts_no_warmup(monkeypatch):
+    calls: list[str] = []
+    _patch_search(monkeypatch, calls)
+    monkeypatch.setattr(
+        "shelfmark.core.mirrors.has_aa_mirror_configuration", lambda: False, raising=False
+    )
+
+    assert warmup.warm_on_connect() is False
+    assert calls == []
+
+
+def test_page_open_during_a_long_search_starts_no_warmup(monkeypatch):
+    calls: list[str] = []
+    _patch_search(monkeypatch, calls)
+    now = [1000.0]
+    monkeypatch.setattr(warmup.time, "monotonic", lambda: now[0])
+
+    with warmup.user_search():
+        now[0] += 10_000
+        assert warmup.warm_on_connect() is False
+
+    assert calls == []
+
+
+def test_the_idle_window_restarts_when_a_search_ends(monkeypatch):
+    calls: list[str] = []
+    _patch_search(monkeypatch, calls)
+    now = [1000.0]
+    monkeypatch.setattr(warmup.time, "monotonic", lambda: now[0])
+
+    with warmup.user_search():
+        now[0] += 250
+
+    now[0] += 100
     assert warmup.warm_on_connect() is False
     assert calls == []

@@ -19,7 +19,9 @@ def _clear_warmup_user_search_flag():
     warmup._user_search_seen.clear()
     warmup._last_bypass_use = None
     warmup._connect_thread = None
+    warmup._searches_in_flight = 0
     yield
     warmup._user_search_seen.clear()
     warmup._last_bypass_use = None
     warmup._connect_thread = None
+    warmup._searches_in_flight = 0
