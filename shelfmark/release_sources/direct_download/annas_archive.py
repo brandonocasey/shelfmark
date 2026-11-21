@@ -817,8 +817,9 @@ def search_books(query: str, filters: SearchFilters) -> tuple[list[BrowseRecord]
         )
     )
 
-    # Fetch download counts for all results in batch
-    if books:
+    # The counts feed the "most downloads" order and the list's download column. AA's own
+    # relevance order needs neither, and the lookups are most of a warm search.
+    if books and filters.sort != "relevance":
         _enrich_search_results_with_downloads(books)
 
     return (books, total_count)
