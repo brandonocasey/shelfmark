@@ -11,6 +11,7 @@ from flask_socketio import emit
 from shelfmark.core.logger import setup_logger
 from shelfmark.core.viewer_redaction import redact_status
 from shelfmark.download import orchestrator as backend
+from shelfmark.download import warmup
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,6 +49,9 @@ def register_socket_handlers(
 
         # Track the connection (triggers warmup callbacks on first connect)
         ws_manager.client_connected()
+
+        # A page open is the cue to have the search source ready before the first search
+        warmup.warm_on_connect()
 
         # Join appropriate room based on authenticated user session
         is_admin, db_user_id, can_access_status = resolve_status_scope()

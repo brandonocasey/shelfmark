@@ -15,11 +15,18 @@ source that is down at boot must not affect startup or health.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
+import time
+from typing import TYPE_CHECKING
 
+from shelfmark.bypass.idle_timeout import helper_idle_timeout
 from shelfmark.core.config import config
 from shelfmark.core.logger import setup_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = setup_logger(__name__)
 
@@ -40,10 +47,34 @@ _warmup_lock = threading.Lock()
 # seconds old, for a throwaway "The Great Gatsby" query nobody asked for.
 _user_search_seen = threading.Event()
 
+# Warm-up from a page open: when a warm-up or a real search last used the bypass helper,
+# how many real searches are running, and the thread of a warm-up already running for a
+# page open.
+_connect_thread: threading.Thread | None = None
+_last_bypass_use: float | None = None
+_searches_in_flight = 0
+
 
 def note_user_search() -> None:
     """Record that a real search has run, so a pending warm-up stands down."""
+    global _last_bypass_use
     _user_search_seen.set()
+    _last_bypass_use = time.monotonic()
+
+
+@contextlib.contextmanager
+def user_search() -> Iterator[None]:
+    """Mark a real search as running; a page open starts no warm-up until it ends."""
+    global _searches_in_flight, _last_bypass_use
+    note_user_search()
+    with _warmup_lock:
+        _searches_in_flight += 1
+    try:
+        yield
+    finally:
+        with _warmup_lock:
+            _searches_in_flight -= 1
+            _last_bypass_use = time.monotonic()
 
 
 def _as_bool(value: object, *, default: bool) -> bool:
@@ -108,6 +139,13 @@ def run_warmup() -> bool:
         logger.debug("Search warm-up skipped: no Anna's Archive mirrors configured")
         return False
 
+    return _search_once()
+
+
+def _search_once() -> bool:
+    """Run the throwaway search. Returns True if it produced results."""
+    global _last_bypass_use
+
     query = warmup_query()
     logger.info("Warming up direct download search (%r)", query)
     try:
@@ -121,12 +159,58 @@ def run_warmup() -> bool:
         logger.warning("Search warm-up did not complete; first user search may be slow")
         logger.debug("Search warm-up failure detail", exc_info=True)
         return False
+    finally:
+        _last_bypass_use = time.monotonic()
 
     if results:
         logger.info("Search warm-up complete: %s results, source is ready", len(results))
         return True
     logger.info("Search warm-up returned no results; source reachable but empty")
     return False
+
+
+def warm_on_connect() -> bool:
+    """Start a warm-up because a client opened the page. Returns True if one started.
+
+    The boot warm-up only helps the first visit after a restart. Once the bypass helper
+    has idled out, the next search pays the cold path again, so a page open is the cue
+    to pay it ahead of the search box. It runs on a daemon thread and never raises.
+
+    A warm-up is skipped while another is pending or running, while a real search is
+    running, and while the last warm-up or search is within the helper's idle timeout,
+    so a reload or a second tab must not start another solve. Like the boot warm-up, it
+    needs an Anna's Archive mirror.
+    """
+    global _connect_thread, _last_bypass_use
+
+    from shelfmark.core.mirrors import has_aa_mirror_configuration
+
+    if not is_enabled() or not has_aa_mirror_configuration():
+        return False
+
+    with _warmup_lock:
+        if _searches_in_flight:
+            logger.debug("Search warm-up skipped: a search is running")
+            return False
+
+        for thread in (_warmup_thread, _connect_thread):
+            if thread is not None and thread.is_alive():
+                logger.debug("Search warm-up already pending or running")
+                return False
+
+        last_use = _last_bypass_use
+        if last_use is not None and time.monotonic() - last_use < helper_idle_timeout():
+            logger.debug("Search warm-up skipped: bypass helper still warm")
+            return False
+
+        # Claim the window before the thread runs, so a burst of connects starts one.
+        _last_bypass_use = time.monotonic()
+        _connect_thread = threading.Thread(
+            target=_search_once, name="SearchWarmupOnConnect", daemon=True
+        )
+        _connect_thread.start()
+
+    return True
 
 
 def start(delay_seconds: float = _DEFAULT_DELAY_SECONDS) -> bool:
