@@ -17,7 +17,6 @@ from urllib.parse import quote, urlparse
 import requests
 from bs4 import BeautifulSoup, Tag
 from bs4.element import NavigableString
-from requests.adapters import HTTPAdapter
 
 from shelfmark.bypass.challenge import MAX_CHALLENGE_HTML_CHARS, challenge_marker
 from shelfmark.config.env import DEBUG_SKIP_SOURCES
@@ -828,13 +827,11 @@ def search_books(query: str, filters: SearchFilters) -> tuple[list[BrowseRecord]
 # One search asks for the same md5 once per title variant that finds it, and reopening
 # the release list asks again. A count that is a few minutes old is fine on a list.
 _DOWNLOAD_COUNT_TTL = 300
-_DOWNLOAD_COUNT_WORKERS = 20
+_DOWNLOAD_COUNT_WORKERS = 5
 _download_count_cache = CacheService(max_size=2000)
-# Keeps connections to the mirror open between lookups. The pool is sized to the workers,
-# because requests' default of 10 per host would drop connections beyond that.
+# Keeps connections to the mirror open between lookups. requests' default pool of 10
+# per host already covers _DOWNLOAD_COUNT_WORKERS.
 _inline_info_session = requests.Session()
-_inline_info_session.mount("https://", HTTPAdapter(pool_maxsize=_DOWNLOAD_COUNT_WORKERS))
-_inline_info_session.mount("http://", HTTPAdapter(pool_maxsize=_DOWNLOAD_COUNT_WORKERS))
 
 
 def _fetch_download_count_inline(book_id: str) -> int | None:
