@@ -1,5 +1,7 @@
 """Tests for WebSocket room scoping and SID room synchronization."""
 
+import threading
+
 from shelfmark.api import websocket as websocket_module
 from shelfmark.api.websocket import WebSocketManager
 
@@ -83,4 +85,33 @@ def test_sync_user_room_tracks_ref_counts_across_multiple_sids(monkeypatch):
 
     manager.leave_user_room("sid-a")
     manager.leave_user_room("sid-b")
+    assert manager._user_rooms == {}
+
+
+def test_progress_broadcast_survives_a_client_disconnecting_during_emit(monkeypatch):
+    monkeypatch.setattr(websocket_module, "join_room", lambda *_, **__: None)
+    monkeypatch.setattr(websocket_module, "leave_room", lambda *_, **__: None)
+
+    manager = WebSocketManager()
+    manager._enabled = True
+    manager.sync_user_room("sid-1", is_admin=False, db_user_id=7)
+
+    class DisconnectingSocketIO:
+        """Closes the client from inside emit(), as a ping timeout does."""
+
+        def emit(self, _event, _data, to=None):
+            if to == "user_7":
+                manager.leave_user_room("sid-1")
+
+    manager.socketio = DisconnectingSocketIO()
+
+    finished = threading.Event()
+
+    def broadcast():
+        manager.broadcast_download_progress("book-1", 50.0, "downloading", user_id=7)
+        finished.set()
+
+    threading.Thread(target=broadcast, daemon=True).start()
+
+    assert finished.wait(timeout=2), "broadcast deadlocked on the room lock"
     assert manager._user_rooms == {}
